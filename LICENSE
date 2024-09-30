@@ -19,3 +19,29 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+
+
+BKASH_CHECKOUT_URL_USER_NAME = 'sandboxTokenizedUser02'
+BKASH_CHECKOUT_URL_PASSWORD = 'sandboxTokenizedUser02@12345'
+BKASH_CHECKOUT_URL_APP_KEY = '4f6o0cjiki2rfm34kfdadl1eqq'
+BKASH_CHECKOUT_URL_APP_SECRET = '2is7hdktrekvrbljjh44ll3d9l1dtjo4pasmjvs5vl5qr3fug4b'
+
+**base url  : https://tokenized.sandbox.bka.sh/v1.2.0-beta
+
+**API Documentation: https://developer.bka.sh/docs/grant-token-1
+
+
+Please use any of wallets given below. PIN and OTP will remain the same as before.
+
+Regular Active Customer wallet No:-
+- 01619777282
+- 01770618575
+- 01877722345
+
+Customer wallet No for Failed Cases:-
+• 01823074817   Insufficient
+
+OTP: 123456
+Pin: 12121
