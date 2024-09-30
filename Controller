@@ -1,0 +1,147 @@
+<?php
+
+namespace App\Http\Controllers;
+
+
+use GuzzleHttp\Client;
+use App\Models\Company;
+use App\Models\SoftwarePayment;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\Session;
+
+class BkashPaymentController extends Controller
+{
+
+    public $app_key;
+    private $app_secret;
+    private $username;
+    public $password;
+    public $base_url;
+
+
+    public function __construct() {
+        $this->app_key = '4f6o0cjiki2rfm34kfdadl1eqq';
+        $this->app_secret = '2is7hdktrekvrbljjh44ll3d9l1dtjo4pasmjvs5vl5qr3fug4b';
+        $this->username = 'sandboxTokenizedUser02';
+        $this->password = 'sandboxTokenizedUser02@12345';
+        $this->base_url = 'https://tokenized.sandbox.bka.sh/v1.2.0-beta';
+    }
+
+    public function authHeaders() {
+        return array(
+            'Content-Type:application/json',
+            'Authorization:' . $this->grant(),
+            'X-APP-Key:' . $this->app_key
+        );
+    }
+    public function curlWithBody($url, $header, $method, $body_data_json) {
+        $curl = curl_init($this->base_url . $url);
+        curl_setopt($curl, CURLOPT_HTTPHEADER, $header);
+        curl_setopt($curl, CURLOPT_CUSTOMREQUEST, $method);
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($curl, CURLOPT_POSTFIELDS, $body_data_json);
+        curl_setopt($curl, CURLOPT_FOLLOWLOCATION, 1);
+        curl_setopt($curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        $response = curl_exec($curl);
+        curl_close($curl);
+        return $response;
+    }
+    public function grant() {
+        $header = array(
+            'Content-Type:application/json',
+            'username:' . $this->username,
+            'password:' . $this->password
+        );
+        $header_data_json = json_encode($header);
+        $body_data = array('app_key' => $this->app_key, 'app_secret' => $this->app_secret);
+        $body_data_json = json_encode($body_data);
+
+        $response = $this->curlWithBody('/tokenized/checkout/token/grant', $header, 'POST', $body_data_json);
+
+        $responseData = json_decode($response);
+
+        if (isset($responseData->id_token)) {
+            return $responseData->id_token;
+        } else {
+
+            throw new \Exception("Token not found. Response: " . json_encode($responseData));
+        }
+    }
+
+    public function createPayment(Request $request) {
+
+        // return $request->all();
+
+
+        $totalAmount = $request->amount;
+        $header = $this->authHeaders();
+        $website_url = url('/');
+        $body_data = array(
+            'mode' => '0011',
+            'payerReference' => $request->cus_name ?? '',
+            'callbackURL' =>$website_url.'/bkash/callback',
+            'amount' => $totalAmount,
+            'currency' => 'BDT',
+            'intent' => 'sale',
+           'merchantInvoiceNumber' => "Inv" . rand(4, 9) . $request->order_id,
+
+        );
+        $body_data_json = json_encode($body_data);
+        $response = $this->curlWithBody('/tokenized/checkout/create', $header, 'POST', $body_data_json);
+        $request->request->add(['payment_tnx_no' => ' ']);
+        $request->request->add(['payment_type' => 'Online']);
+        $request->request->add(['payment_method' => 'Bkash']);
+        $request->request->add(['payment_status' => 'Pending']);
+        return redirect((json_decode($response)->bkashURL));
+
+    }
+
+    
+     public function callback(Request $request)
+        {
+            // return $request->all();
+            try {
+
+                $paymentID = $request->query('paymentID');
+
+
+                if ($paymentID != '' && $paymentID != null) {
+                    $payment = SoftwarePayment::where('status', '0')->first();
+
+                    if ($payment) {
+                         $payment->update([
+                            'status'    => 1,
+                            'paid_date' => date('Y-m-d'),
+                        ]);
+
+                        // Calculate new payment date
+                        $newPaymentDate = Carbon::parse($payment->software_payment_date)->addMonths($payment->after_date);
+
+                        // Create a new software payment record
+                        SoftwarePayment::create([
+                            'software_payment_date' => $newPaymentDate,
+                            'status'                => 0,
+                            'after_date'            => $payment->after_date,
+                            'amount'                => $payment->amount,
+                            'alert'                 => $payment->alert,
+                            'paid_amount'           => $payment->paid_amount,
+                            'fk_created_by'         => $payment->fk_created_by,
+                            'fk_company_id'         => $payment->fk_company_id,
+                        ]);
+                    }
+
+
+                    return redirect()->route('home');
+                } else {
+                     return response('Payment not successful', 400);
+                }
+            } catch (\Exception $e) {
+                // Handle any errors that may occur
+                \Log::error('Payment callback error: ' . $e->getMessage());
+                return response('An error occurred during payment processing', 500);
+            }
+        }
+
+}
