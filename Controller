@@ -145,3 +145,355 @@ class BkashPaymentController extends Controller
         }
 
 }
+
+
+
+============================================================================....
+
+
+<?php
+
+namespace App\Http\Controllers;
+
+
+use App\SoftwarePayment;
+use App\Models\User;
+use Carbon\Carbon;
+
+use Illuminate\Support\Facades\Redirect;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+
+class BkashPaymentController extends Controller
+{
+    private $service;
+
+
+    /*
+     |--------------------------------------------------------------------------
+     | CONSTRUCTOR
+     |--------------------------------------------------------------------------
+    */
+
+
+
+
+
+
+
+
+    public  $app_key;
+    private $app_secret;
+    private $username;
+    public  $password;
+    public  $base_url;
+
+
+    public function __construct() {
+        // $this->app_key    = '4f6o0cjiki2rfm34kfdadl1eqq';
+        // $this->app_secret = '2is7hdktrekvrbljjh44ll3d9l1dtjo4pasmjvs5vl5qr3fug4b';
+        // $this->username   = 'sandboxTokenizedUser02';
+        // $this->password   = 'sandboxTokenizedUser02@12345';
+        // $this->base_url   = 'https://tokenized.sandbox.bka.sh/v1.2.0-beta';
+
+
+
+    }
+
+
+    public function authHeaders() {
+        return array(
+            'Content-Type:application/json',
+            'Authorization:' . $this->grant(),
+            'X-APP-Key:' . $this->app_key
+        );
+    }
+    public function curlWithBody($url, $header, $method, $body_data_json) {
+        $curl = curl_init($this->base_url . $url);
+        curl_setopt($curl, CURLOPT_HTTPHEADER, $header);
+        curl_setopt($curl, CURLOPT_CUSTOMREQUEST, $method);
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($curl, CURLOPT_POSTFIELDS, $body_data_json);
+        curl_setopt($curl, CURLOPT_FOLLOWLOCATION, 1);
+        curl_setopt($curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        $response = curl_exec($curl);
+        curl_close($curl);
+        return $response;
+    }
+    public function grant() {
+        $header = array(
+            'Content-Type:application/json',
+            'username:' . $this->username,
+            'password:' . $this->password
+        );
+        $header_data_json = json_encode($header);
+        $body_data        = array('app_key' => $this->app_key, 'app_secret' => $this->app_secret);
+        $body_data_json   = json_encode($body_data);
+        $response         = $this->curlWithBody('/tokenized/checkout/token/grant', $header, 'POST', $body_data_json);
+        $responseData     = json_decode($response);
+
+        if (isset($responseData->id_token)) {
+            return $responseData->id_token;
+        } else {
+
+            throw new \Exception("Token not found. Response: " . json_encode($responseData));
+        }
+    }
+
+    public function createPayment(Request $request) {
+
+        $totalAmount         = $request->amount ?? '0';
+        $header              = $this->authHeaders();
+        $website_url         = url('/');
+        $body_data           = array(
+            'mode'           => '0011',
+            'payerReference' => 'Retails-POS',
+            'callbackURL'    => $website_url.'/bkash/callback',
+            'amount'         => $totalAmount,
+            'currency'       => 'BDT',
+            'intent'         => 'sale',
+           'merchantInvoiceNumber' => "Inv" . rand(4, 9) . $request->order_id,
+        );
+        $body_data_json = json_encode($body_data);
+
+        $response = $this->curlWithBody('/tokenized/checkout/create', $header, 'POST', $body_data_json);
+
+        $request->request->add(['payment_tnx_no' => ' ']);
+        $request->request->add(['payment_type'   => 'Online']);
+        $request->request->add(['payment_method' => 'Bkash']);
+        $request->request->add(['payment_status' => 'Pending']);
+        return redirect((json_decode($response)->bkashURL));
+    }
+
+
+
+
+     public function callback(Request $request)
+        {
+            // return $request->all();
+             try {
+
+                $paymentID = $request->query('paymentID');
+                if ($request->status == 'success') {
+
+                    $payment = SoftwarePayment::where('status', '0')->first();
+                    if ($payment) {
+                        $payment->update([
+                            'status' => 1,
+                            'paid_date' => date('y-m-d'),
+                        ]);
+
+                        $newPaymentDate = Carbon::parse($payment->software_payment_date)->addMonths($payment->after_date);
+                        SoftwarePayment::create([
+                            'software_payment_date' => $newPaymentDate ,
+                            'status'                  => 0,
+                            'after_date'              => $payment->after_date,
+                            'amount'                  => $payment->amount,
+                            'alert'                   => $payment->alert,
+                            'paid_amount'             => $payment->paid_amount,
+                            'fk_created_by'           => $payment->fk_created_by,
+                            'fk_company_id'           => $payment->fk_company_id,
+                            'fk_company_package_id'   => 1,
+                        ]);
+                    }
+
+                    return Redirect::to($request->opt_a)->withSuccess('Payment Successful');
+                } else {
+                    return Redirect::to($request->opt_a)->withError('Payment Not Success');
+                }
+
+
+                    // $profile = User::where('id',auth()->user()->id)->first();
+                    // $packageMonth = optional(auth()->user()->package)->type->months;
+                    // $packageDetals = Package::where('user_id', auth()->user()->id)->first();
+                    // $last_date = $packageDetals->end_date ;
+
+
+
+                    // if ($packageDetals) {
+
+                    //     $newPaymentDate = Carbon::parse($last_date)->addMonths($packageMonth);
+
+                    //     $packageDetals->update([
+                    //         'end_date' => $newPaymentDate,
+                    //     ]);
+                    // }
+
+
+                    // return redirect()->route('home');
+                // } else {
+                //     //  return response('Payment not successful', 400);
+                //     return redirect()->route('home')->with('Payment not successful');
+
+                // }
+            } catch (\Exception $e) {
+
+                \Log::error('Payment callback error: ' . $e->getMessage());
+                return response('An error occurred during payment processing', 500);
+            }
+        }
+
+
+
+
+
+
+    public function queryPayment($paymentID) {
+        $header         = $this->authHeaders();
+        $body_data      = array('paymentID' => $paymentID);
+        $body_data_json = json_encode($body_data);
+        $response       = $this->curlWithBody('/tokenized/checkout/payment/status', $header, 'POST', $body_data_json);
+
+    }
+
+
+
+
+
+
+
+    /*
+     |--------------------------------------------------------------------------
+     | INDEX METHOD
+     |--------------------------------------------------------------------------
+    */
+    public function index()
+    {
+        $data = [];
+        return view('', $data);
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /*
+     |--------------------------------------------------------------------------
+     | CREATE METHOD
+     |--------------------------------------------------------------------------
+    */
+    public function create()
+    {
+        $data = [];
+        return view('', $data);
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /*
+     |--------------------------------------------------------------------------
+     | STORE METHOD
+     |--------------------------------------------------------------------------
+    */
+    public function store(Request $request)
+    {
+        # code...
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /*
+     |--------------------------------------------------------------------------
+     | SHOW METHOD
+     |--------------------------------------------------------------------------
+    */
+    public function show($id)
+    {
+        # code...
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /*
+     |--------------------------------------------------------------------------
+     | EDIT METHOD
+     |--------------------------------------------------------------------------
+    */
+    public function edit($id)
+    {
+        # code...
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /*
+     |--------------------------------------------------------------------------
+     | UPDATE METHOD
+     |--------------------------------------------------------------------------
+    */
+    public function update($id, Request $request)
+    {
+        # code...
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+    /*
+     |--------------------------------------------------------------------------
+     | DELETE/DESTORY METHOD
+     |--------------------------------------------------------------------------
+    */
+    public function destroy($id)
+    {
+        # code...
+    }
+}
+
